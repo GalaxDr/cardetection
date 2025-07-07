@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 from collections import Counter
 
+DEBUG_MODE = False
+
 
 def classify_color_from_equalized(bgr_color):
     """
@@ -13,14 +15,15 @@ def classify_color_from_equalized(bgr_color):
     """
     hsv_color = cv2.cvtColor(np.uint8([[bgr_color]]), cv2.COLOR_BGR2HSV)[0][0]
     h, s, v = hsv_color[0], hsv_color[1], hsv_color[2]
-    print(f"HSV: {h}, {s}, {v}")
+    if DEBUG_MODE:
+        print(f"HSV: {h}, {s}, {v}")
 
     # Após a equalização, esperamos valores de V e S mais altos em geral.
     # Os limiares aqui são calibrados para essa nova realidade de alto contraste.
 
     # REGRA 1: PRETO
     # Mesmo após a equalização, áreas pretas puras devem ter baixo brilho (V).
-    if v < 60:
+    if v < 65:
         return 'Preto'
 
     # REGRA 2: BRANCO
@@ -35,11 +38,11 @@ def classify_color_from_equalized(bgr_color):
 
     # REGRA 4: CORES CROMÁTICAS
     # Com o contraste e brilho normalizados, podemos confiar mais no Matiz (H).
-    if (h < 10) or (h > 168):
+    if (h < 15) or (h > 168):
         return 'Vermelho'
     elif h < 25:
         return 'Laranja'
-    elif h < 40:
+    elif h < 45:
         return 'Amarelo'
     elif h < 85:
         return 'Verde'
@@ -51,7 +54,7 @@ def classify_color_from_equalized(bgr_color):
         return 'Rosa'
 
 
-def get_car_color(roi_bgr, show_debug=False):
+def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
     """
     Pipeline final:
     1. Aplica uma FORTE equalização de contraste (CLAHE) para normalizar a iluminação.
@@ -113,7 +116,6 @@ def get_car_color(roi_bgr, show_debug=False):
                 x1, y1 = max(0, px - half_ss), max(0, py - half_ss)
                 cv2.rectangle(debug_img, (x1, y1), (x1 + SAMPLE_SIZE, y1 + SAMPLE_SIZE), (0, 255, 255), 2)
                 print(f"{name.capitalize():<10}: {classifications[name]}")
-        cv2.imshow("Amostragem na Imagem Equalizada", debug_img)
 
         original_resized = cv2.resize(roi_bgr, (debug_img.shape[1], debug_img.shape[0]))
         comparison = np.hstack([original_resized, debug_img])
@@ -184,11 +186,11 @@ while True:
         edge_pixels = cv2.countNonZero(vaga_canny)
 
         # 5. Define um limiar de bordas para considerar a vaga ocupada.
-        edge_threshold = 950 
+        edge_threshold = 950
 
         if edge_pixels > edge_threshold:
             # Vaga OCUPADA
-            cor_carro = get_car_color(vaga_roi.copy(), show_debug=True)
+            cor_carro = get_car_color(vaga_roi.copy())
             cv2.rectangle(frame, (x_vaga, y_vaga), (x_vaga + w_vaga, y_vaga + h_vaga), (0, 0, 255), 2)
             cv2.putText(frame, f'Vaga {i + 1}: Ocupada', (x_vaga, y_vaga - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         (0, 0, 255), 2)
@@ -207,7 +209,8 @@ while True:
     cv2.imshow('Detector de Vagas', frame)
 
     vaga_canny = gray_blur_canny(frame)
-    cv2.imshow('Vaga Canny', vaga_canny)
+    if DEBUG_MODE:
+        cv2.imshow('Vaga Canny', vaga_canny)
 
     if cv2.waitKey(25) & 0xFF == ord('q'):
         break
