@@ -11,27 +11,12 @@ def classify_color_from_equalized(bgr_color):
     h, s, v = hsv_color[0], hsv_color[1], hsv_color[2]
     if DEBUG_MODE:
         print(f"HSV: {h}, {s}, {v}")
-
-    # Após a equalização, esperamos valores de V e S mais altos em geral.
-    # Os limiares aqui são calibrados para essa nova realidade de alto contraste.
-
-    # REGRA 1: PRETO
-    # Mesmo após a equalização, áreas pretas puras devem ter baixo brilho (V).
     if v < 65:
         return 'Preto'
-
-    # REGRA 2: BRANCO
-    # Branco equalizado terá brilho máximo (V) e saturação quase nula (S).
     if s < 30 and v > 100:
         return 'Branco'
-
-    # REGRA 3: CINZA
-    # Cinza equalizado terá baixa saturação (S), mas brilho mediano.
     if s < 35:
         return 'Cinza'
-
-    # REGRA 4: CORES CROMÁTICAS
-    # Com o contraste e brilho normalizados, podemos confiar mais no Matiz (H).
     if (h < 15) or (h > 168):
         return 'Vermelho'
     elif h < 85:
