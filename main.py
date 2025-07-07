@@ -7,12 +7,6 @@ DEBUG_MODE = True
 
 
 def classify_color_from_equalized(bgr_color):
-    """
-    Nova função de classificação projetada para trabalhar com cores que JÁ FORAM
-    normalizadas por uma forte equalização (CLAHE).
-
-    As regras são mais diretas, pois esperamos cores mais 'puras' e vibrantes.
-    """
     hsv_color = cv2.cvtColor(np.uint8([[bgr_color]]), cv2.COLOR_BGR2HSV)[0][0]
     h, s, v = hsv_color[0], hsv_color[1], hsv_color[2]
     if DEBUG_MODE:
@@ -28,7 +22,7 @@ def classify_color_from_equalized(bgr_color):
 
     # REGRA 2: BRANCO
     # Branco equalizado terá brilho máximo (V) e saturação quase nula (S).
-    if s < 30 and v > 110:
+    if s < 30 and v > 100:
         return 'Branco'
 
     # REGRA 3: CINZA
@@ -40,10 +34,6 @@ def classify_color_from_equalized(bgr_color):
     # Com o contraste e brilho normalizados, podemos confiar mais no Matiz (H).
     if (h < 15) or (h > 168):
         return 'Vermelho'
-    elif h < 25:
-        return 'Laranja'
-    elif h < 45:
-        return 'Amarelo'
     elif h < 85:
         return 'Verde'
     elif h < 135:
@@ -55,21 +45,12 @@ def classify_color_from_equalized(bgr_color):
 
 
 def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
-    """
-    Pipeline final:
-    1. Aplica uma FORTE equalização de contraste (CLAHE) para normalizar a iluminação.
-    2. Usa a amostragem em 5 pontos na imagem normalizada.
-    3. Classifica as amostras com a nova função `classify_color_from_equalized`.
-    """
     if roi_bgr is None or roi_bgr.size < 400:
         return 'N/D'
 
-    # --- 1. Normalização Agressiva com CLAHE ---
     hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
 
-    # Aumentamos o clipLimit para uma equalização BEM mais forte.
-    # VALOR PARA AJUSTAR: Aumente para mais contraste, diminua para menos. 8.0 é um valor forte.
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     v_equalized = clahe.apply(v)
 
@@ -78,7 +59,6 @@ def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
 
     h, w, _ = roi_bgr_processed.shape
 
-    # --- 2. Amostragem em 5 Pontos ---
     center_x, center_y = w // 2, h // 2
     points = {
         'centro': (center_x + 15, center_y), 'esquerda': (w // 4 + 10, center_y),
@@ -90,7 +70,6 @@ def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
     half_ss = SAMPLE_SIZE // 2
     classifications = {}
 
-    # --- 3. Classificação com a Nova Função ---
     for name, (px, py) in points.items():
         y1, y2 = max(0, py - half_ss), min(h, py + half_ss)
         x1, x2 = max(0, px - half_ss), min(w, px + half_ss)
@@ -100,10 +79,8 @@ def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
             continue
 
         avg_bgr_color = np.mean(sample_area, axis=(0, 1))
-        # Chamando a NOVA função de classificação
         classifications[name] = classify_color_from_equalized(avg_bgr_color)
 
-    # Lógica de votação e depuração
     if not classifications:
         return "N/D"
 
@@ -136,7 +113,6 @@ def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
 
 # --- CONFIGURAÇÃO INICIAL ---
 
-# Constrói o caminho absoluto para o vídeo
 script_dir = os.path.dirname(os.path.abspath(__file__))
 video_path = os.path.join(script_dir, 'Estacionamento.mp4')
 cap = cv2.VideoCapture(video_path)
@@ -145,7 +121,6 @@ if not cap.isOpened():
     print(f"Erro: Não foi possível abrir o vídeo em '{video_path}'.")
     exit()
 
-# Coordenadas das 4 vagas de estacionamento (x, y, largura, altura)
 vagas = [
     (5, 90, 180, 350),  # Vaga 1 (esquerda)
     (240, 60, 180, 380),  # Vaga 2 (centro-esquerda)
@@ -163,29 +138,20 @@ while True:
 
     vagas_disponiveis = 0
 
-
     def gray_blur_canny(video):
-        """
-        Aplica conversão para escala de cinza, desfoque e detecção de bordas Canny.
-        """
         gray = cv2.cvtColor(video, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5c), 0)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
         canny = cv2.Canny(blur, 50, 150)
         return canny
 
 
-    # Itera sobre cada vaga definida
     for i, (x_vaga, y_vaga, w_vaga, h_vaga) in enumerate(vagas):
-        # 1. Recorta a região da vaga do frame original
         vaga_roi = frame[y_vaga:y_vaga + h_vaga, x_vaga:x_vaga + w_vaga]
 
-        # 2. Converte para escala de cinza e aplica um desfoque para suavizar a imagem
         vaga_canny = gray_blur_canny(vaga_roi)
 
-        # 4. Conta os pixels de borda (pixels brancos na imagem Canny)
         edge_pixels = cv2.countNonZero(vaga_canny)
 
-        # 5. Define um limiar de bordas para considerar a vaga ocupada.
         edge_threshold = 950
 
         if edge_pixels > edge_threshold:
