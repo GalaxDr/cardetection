@@ -4,119 +4,131 @@ import numpy as np
 from collections import Counter
 
 
-def classify_color(bgr_color):
+def classify_color_from_equalized(bgr_color):
     """
-    Classifica a cor BGR de um objeto tentando inferir a cor real
-    a partir da cor aparente, lidando com condições de baixa iluminação e saturação.
+    Nova função de classificação projetada para trabalhar com cores que JÁ FORAM
+    normalizadas por uma forte equalização (CLAHE).
+
+    As regras são mais diretas, pois esperamos cores mais 'puras' e vibrantes.
     """
-    b, g, r = bgr_color
-    #[81.96428571 73.96428571 75.50510204]
-    # Normaliza os valores BGR para a faixa [0, 255]
-    b, g, r = int(b), int(g), int(r)
+    hsv_color = cv2.cvtColor(np.uint8([[bgr_color]]), cv2.COLOR_BGR2HSV)[0][0]
+    h, s, v = hsv_color[0], hsv_color[1], hsv_color[2]
+    print(f"HSV: {h}, {s}, {v}")
 
-    mean = (np.mean([b, g, r]) + 0.5) / 255.0
+    # Após a equalização, esperamos valores de V e S mais altos em geral.
+    # Os limiares aqui são calibrados para essa nova realidade de alto contraste.
 
-    print(f"Valores normalizados: B={b}, G={g}, R={r}, Média={mean}")
-    if mean < 0.3:
-        return 'Preto'  # Baixa iluminação, assume preto
-    elif mean > 0.8:
+    # REGRA 1: PRETO
+    # Mesmo após a equalização, áreas pretas puras devem ter baixo brilho (V).
+    if v < 60:
+        return 'Preto'
+
+    # REGRA 2: BRANCO
+    # Branco equalizado terá brilho máximo (V) e saturação quase nula (S).
+    if s < 30 and v > 110:
         return 'Branco'
-    elif b > 150 and g < 100 and r < 100:
-        return 'Azul'
-    elif b < 100 and g > 150 and r < 100:
-        return 'Verde'
-    elif b < 100 and g < 100 and r > 135:
-        return 'Vermelho'
-    elif b > 100 and g > 100 and r < 100:
-        return 'Amarelo'
-    elif b < 100 and g > 100 and r > 100:
-        return 'Ciano'
-    elif b > 100 and g < 100 and r > 100:
-        return 'Magenta'
-    elif b > 100 and g > 100 and r > 100:
+
+    # REGRA 3: CINZA
+    # Cinza equalizado terá baixa saturação (S), mas brilho mediano.
+    if s < 35:
         return 'Cinza'
+
+    # REGRA 4: CORES CROMÁTICAS
+    # Com o contraste e brilho normalizados, podemos confiar mais no Matiz (H).
+    if (h < 10) or (h > 168):
+        return 'Vermelho'
+    elif h < 25:
+        return 'Laranja'
+    elif h < 40:
+        return 'Amarelo'
+    elif h < 85:
+        return 'Verde'
+    elif h < 135:
+        return 'Azul'
+    elif h < 155:
+        return 'Roxo'
     else:
-        return 'N/D'
+        return 'Rosa'
 
 
-
-
-
-
-
-
-def get_car_color_robust(roi_bgr, show_debug=False):
+def get_car_color(roi_bgr, show_debug=False):
     """
-    Implementa uma abordagem de amostragem em 5 pontos em forma de cruz (+)
-    com prioridade central em caso de ambiguidade.
+    Pipeline final:
+    1. Aplica uma FORTE equalização de contraste (CLAHE) para normalizar a iluminação.
+    2. Usa a amostragem em 5 pontos na imagem normalizada.
+    3. Classifica as amostras com a nova função `classify_color_from_equalized`.
     """
     if roi_bgr is None or roi_bgr.size < 400:
         return 'N/D'
 
-    h, w, _ = roi_bgr.shape
+    # --- 1. Normalização Agressiva com CLAHE ---
+    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
 
-    # 1. Definir as coordenadas dos 5 pontos de amostragem
+    # Aumentamos o clipLimit para uma equalização BEM mais forte.
+    # VALOR PARA AJUSTAR: Aumente para mais contraste, diminua para menos. 8.0 é um valor forte.
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    v_equalized = clahe.apply(v)
+
+    hsv_equalized = cv2.merge([h, s, v_equalized])
+    roi_bgr_processed = cv2.cvtColor(hsv_equalized, cv2.COLOR_HSV2BGR)
+
+    h, w, _ = roi_bgr_processed.shape
+
+    # --- 2. Amostragem em 5 Pontos ---
     center_x, center_y = w // 2, h // 2
     points = {
-        'centro': (center_x + 10, center_y),
-        'esquerda': (w // 4, center_y),
-        'direita': (w * 3 // 4, center_y),
-        'cima': (center_x, h // 8),
-        'baixo': (center_x, h * 3 // 4),
+        'centro': (center_x + 15, center_y), 'esquerda': (w // 4 + 10, center_y),
+        'direita': (w * 3 // 4, center_y), 'cima': (center_x, h // 4),
+        'baixo': (center_x, h * 3 // 4 - 40),
     }
 
     SAMPLE_SIZE = max(10, min(h, w) // 10)
     half_ss = SAMPLE_SIZE // 2
-
     classifications = {}
 
-    debug_img = roi_bgr.copy() if show_debug else None
-
-    # 2. Extrair e classificar a cor de cada pequena área
+    # --- 3. Classificação com a Nova Função ---
     for name, (px, py) in points.items():
         y1, y2 = max(0, py - half_ss), min(h, py + half_ss)
         x1, x2 = max(0, px - half_ss), min(w, px + half_ss)
 
-        sample_area = roi_bgr[y1:y2, x1:x2]
-
+        sample_area = roi_bgr_processed[y1:y2, x1:x2]
         if sample_area.size == 0:
             continue
 
         avg_bgr_color = np.mean(sample_area, axis=(0, 1))
-        classifications[name] = classify_color(avg_bgr_color)
+        # Chamando a NOVA função de classificação
+        classifications[name] = classify_color_from_equalized(avg_bgr_color)
 
-        if show_debug:
-            cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            cv2.putText(debug_img, classifications[name], (x1, y1 - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-
+    # Lógica de votação e depuração
     if not classifications:
         return "N/D"
 
     if show_debug:
-        print("--- Classificações Individuais (5 Pontos) ---")
+        print("\n--- Classificações Individuais (após Equalização Forte) ---")
+        debug_img = roi_bgr_processed.copy()
         for name in ['cima', 'esquerda', 'centro', 'direita', 'baixo']:
             if name in classifications:
+                (px, py) = points[name]
+                x1, y1 = max(0, px - half_ss), max(0, py - half_ss)
+                cv2.rectangle(debug_img, (x1, y1), (x1 + SAMPLE_SIZE, y1 + SAMPLE_SIZE), (0, 255, 255), 2)
                 print(f"{name.capitalize():<10}: {classifications[name]}")
-        cv2.imshow("Amostragem em 5 Pontos", debug_img)
+        cv2.imshow("Amostragem na Imagem Equalizada", debug_img)
+
+        original_resized = cv2.resize(roi_bgr, (debug_img.shape[1], debug_img.shape[0]))
+        comparison = np.hstack([original_resized, debug_img])
+        cv2.imshow("Original vs. Equalizada", comparison)
         cv2.waitKey(1)
 
-    # 3. Sistema de Votação para 5 amostras com Prioridade Central
     class_list = list(classifications.values())
     counts = Counter(class_list)
-
-    # Se não houver votos, retorna N/D
     if not counts:
         return 'N/D'
-
     winner, win_count = counts.most_common(1)[0]
 
-    # Se uma cor tem 3 ou mais votos (maioria), ela é a vencedora.
     if win_count >= 3:
         return winner
     else:
-        # Se não há maioria (contagem máxima é 2 ou 1), há ambiguidade.
-        # Nesses casos, a prioridade do ponto central decide.
         return classifications.get('centro', 'N/D')
 
 
@@ -172,13 +184,11 @@ while True:
         edge_pixels = cv2.countNonZero(vaga_canny)
 
         # 5. Define um limiar de bordas para considerar a vaga ocupada.
-        # ESTE VALOR É CRÍTICO E PODE PRECISAR DE AJUSTE!
-        # Um carro tem muitas bordas, uma vaga vazia tem poucas.
-        edge_threshold = 950  # Valor inicial para teste, ajuste conforme necessário
+        edge_threshold = 950 
 
         if edge_pixels > edge_threshold:
             # Vaga OCUPADA
-            cor_carro = get_car_color_robust(vaga_roi, show_debug=True)
+            cor_carro = get_car_color(vaga_roi.copy(), show_debug=True)
             cv2.rectangle(frame, (x_vaga, y_vaga), (x_vaga + w_vaga, y_vaga + h_vaga), (0, 0, 255), 2)
             cv2.putText(frame, f'Vaga {i + 1}: Ocupada', (x_vaga, y_vaga - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         (0, 0, 255), 2)
