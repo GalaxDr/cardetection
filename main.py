@@ -11,11 +11,11 @@ def classify_color_from_equalized(bgr_color):
     h, s, v = hsv_color[0], hsv_color[1], hsv_color[2]
     if DEBUG_MODE:
         print(f"HSV: {h}, {s}, {v}")
-    if v < 65:
+    if v < 62:
         return 'Preto'
-    if s < 30 and v > 100:
+    if s < 40 and v > 77:
         return 'Branco'
-    if s < 35:
+    if s < 45:
         return 'Cinza'
     if (h < 15) or (h > 168):
         return 'Vermelho'
@@ -32,23 +32,41 @@ def classify_color_from_equalized(bgr_color):
 def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
     if roi_bgr is None or roi_bgr.size < 400:
         return 'N/D'
-
-    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    norm = cv2.normalize(roi_bgr, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    hsv = cv2.cvtColor(norm, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    v_equalized = clahe.apply(v)
+    # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    # v_equalized = clahe.apply(v)
+    #
+    # hsv_equalized = cv2.merge([h, s, v_equalized])
+    roi_bgr_processed = norm
 
-    hsv_equalized = cv2.merge([h, s, v_equalized])
-    roi_bgr_processed = cv2.cvtColor(hsv_equalized, cv2.COLOR_HSV2BGR)
+    h, w, _ = norm.shape
 
-    h, w, _ = roi_bgr_processed.shape
+    # crop = roi_bgr[int(h * 0.2):int(h * 0.8), int(w * 0.1):int(w * 0.9)]
+    # pixels = crop.reshape((-1, 3))
+    #
+    # # Remover pixels quase brancos (reflexos, placas) e quase pretos (buracos, sombras)
+    # pixels = pixels[(np.max(pixels, axis=1) > 30) & (np.min(pixels, axis=1) < 230)]
+    # median_h = int(np.median(pixels[:, 0]))
+    # median_s = int(np.median(pixels[:, 1]))
+    # median_v = int(np.median(pixels[:, 2]))
+    # median_hsv = [median_h, median_s, median_v]
+    # return classify_color_from_equalized(median_hsv)
+
 
     center_x, center_y = w // 2, h // 2
     points = {
-        'centro': (center_x + 15, center_y), 'esquerda': (w // 4 + 10, center_y),
-        'direita': (w * 3 // 4, center_y), 'cima': (center_x, h // 4),
+        'centro': (center_x + 15, center_y),
+        'esquerda': (w // 4 + 10, center_y),
+        'direita': (w * 3 // 4, center_y),
+        'cima': (center_x, h // 4),
         'baixo': (center_x, h * 3 // 4 - 40),
+        'baixo2': (center_x + 30, h * 3 // 4 - 40),
+        'baixo3': (center_x - 30,  h * 3 // 4 - 40),
+        'cima2': (center_x - 30, h // 4),
+        'cima3': (center_x + 30, h // 4),
     }
 
     SAMPLE_SIZE = max(10, min(h, w) // 10)
@@ -70,14 +88,14 @@ def get_car_color(roi_bgr, show_debug=DEBUG_MODE):
         return "N/D"
 
     if show_debug:
-        print("\n--- Classificações Individuais (após Equalização Forte) ---")
+        # print("\n--- Classificações Individuais (após Equalização Forte) ---")
         debug_img = roi_bgr_processed.copy()
-        for name in ['cima', 'esquerda', 'centro', 'direita', 'baixo']:
+        for name in ['cima', 'cima3','cima2','esquerda', 'centro', 'direita', 'baixo', 'baixo2','baixo3']:
             if name in classifications:
                 (px, py) = points[name]
                 x1, y1 = max(0, px - half_ss), max(0, py - half_ss)
                 cv2.rectangle(debug_img, (x1, y1), (x1 + SAMPLE_SIZE, y1 + SAMPLE_SIZE), (0, 255, 255), 2)
-                print(f"{name.capitalize():<10}: {classifications[name]}")
+                # print(f"{name.capitalize():<10}: {classifications[name]}")
 
         original_resized = cv2.resize(roi_bgr, (debug_img.shape[1], debug_img.shape[0]))
         comparison = np.hstack([original_resized, debug_img])
