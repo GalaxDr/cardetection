@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from collections import Counter
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 
 def classify_color_from_equalized(bgr_color):
@@ -169,7 +169,7 @@ while True:
         Aplica conversão para escala de cinza, desfoque e detecção de bordas Canny.
         """
         gray = cv2.cvtColor(video, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 1)
+        blur = cv2.GaussianBlur(gray, (5, 5c), 0)
         canny = cv2.Canny(blur, 50, 150)
         return canny
 
